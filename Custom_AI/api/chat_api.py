@@ -10,11 +10,23 @@ from services.file_parser import parse_file_from_bytes
 
 router = APIRouter(prefix="/chat")
 
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),
-    api_version="2024-02-15-preview",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-)
+def get_openai_client():
+    key = os.getenv("AZURE_OPENAI_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+
+    if not key or not endpoint or not deployment:
+        raise HTTPException(
+            status_code=500,
+            detail="Azure OpenAI environment variables are not configured"
+        )
+
+    return AzureOpenAI(
+        api_key=key,
+        api_version="2024-02-15-preview",
+        azure_endpoint=endpoint
+    )
+
 
 
 class ChatRequest(BaseModel):
@@ -78,21 +90,15 @@ def query_selected_files(
     print("\n FINAL FULL CONTEXT LENGTH SENT TO LLM:", len(full_context))
 
     #  LLM CALL (WITH SAFE TOKEN LIMIT)
+    client = get_openai_client()
+
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
-        messages=[
-            {
-                "role": "system",
-                "content": "Answer ONLY from the provided documents. If part of the question is missing, answer what is available and state what is not found."
-            },
-            {
-                "role": "user",
-                "content": f"Documents:\n{full_context}\n\nQuestion:\n{req.question}"
-            }
-        ],
+        messages=[...],
         temperature=0,
         max_tokens=1500
     )
+
 
     return {
         "answer": response.choices[0].message.content
