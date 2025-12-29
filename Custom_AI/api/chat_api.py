@@ -1,5 +1,4 @@
 import os
-import env_loader
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -93,11 +92,20 @@ def query_selected_files(
     client = get_openai_client()
 
     response = client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
-        messages=[...],
-        temperature=0,
-        max_tokens=1500
-    )
+    model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+    messages=[
+        {
+            "role": "system",
+            "content": "Answer ONLY from the provided documents."
+        },
+        {
+            "role": "user",
+            "content": f"Documents:\n{full_context}\n\nQuestion:\n{req.question}"
+        }
+    ],
+    temperature=0,
+    max_tokens=1500
+)
 
 
     return {
