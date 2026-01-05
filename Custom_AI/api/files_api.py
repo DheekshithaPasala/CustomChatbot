@@ -113,53 +113,85 @@ def get_files_by_path(folder_path: str = Query(""), authorization: str = Header(
     # ------------------ CASE 1: URL ------------------
     if folder_path.startswith("http"):
 
-        # ✅ ALWAYS treat OneDrive-style shared links as shared links
+        # ------------------ SHARE LINK FIRST ------------------
         if "/:f:/" in folder_path or "/:u:/" in folder_path:
             share_res = resolve_share_link(folder_path, token)
 
-            if not share_res:
-                raise HTTPException(404, detail="Unable to resolve shared OneDrive link")
+            # ✅ If Graph resolves the share → use it
+            if share_res:
+                drive_id = share_res["parentReference"]["driveId"]
+                item_id = share_res["id"]
 
-            drive_id = share_res["parentReference"]["driveId"]
-            item_id = share_res["id"]
+                if "file" in share_res:
+                    perms = get_permissions(drive_id, item_id, token)
+                    role_info = extract_roles(perms)
 
-            # If file
-            if "file" in share_res:
-                perms = get_permissions(drive_id, item_id, token)
-                role_info = extract_roles(perms)
+                    return {
+                        "drive_id": drive_id,
+                        "items": [{
+                            "id": item_id,
+                            "name": share_res["name"],
+                            "type": "file",
+                            "drive_id": drive_id,
+                            **role_info
+                        }]
+                    }
 
-                return {
-                    "drive_id": drive_id,
-                    "items": [{
-                        "id": item_id,
-                        "name": share_res["name"],
-                        "type": "file",
+                children_api = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children"
+                children = graph_get(children_api, token)
+
+                items = []
+                for f in children["value"]:
+                    fid = f["id"]
+                    perms = get_permissions(drive_id, fid, token)
+                    role_info = extract_roles(perms)
+
+                    items.append({
+                        "id": fid,
+                        "name": f["name"],
+                        "type": "folder" if "folder" in f else "file",
                         "drive_id": drive_id,
                         **role_info
-                    }]
-                }
+                    })
 
-            # Folder → fetch children
-            children_api = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children"
-            children = graph_get(children_api, token)
+                return {"drive_id": drive_id, "items": items}
 
-            items = []
-            for f in children["value"]:
-                fid = f["id"]
-                perms = get_permissions(drive_id, fid, token)
-                role_info = extract_roles(perms)
+            # -------------------------------------------------
+            # 🔁 FALLBACK: personal OneDrive OWNED folder
+            # -------------------------------------------------
+            if "/personal/" in folder_path and "/Documents/" in folder_path:
+                parsed = urlparse(folder_path)
+                parts = parsed.path.split("/Documents/", 1)
 
-                items.append({
-                    "id": fid,
-                    "name": f["name"],
-                    "type": "folder" if "folder" in f else "file",
-                    "drive_id": drive_id,
-                    **role_info
-                })
+                if len(parts) == 2:
+                    clean_path = "Documents/" + parts[1]
 
-            return {"drive_id": drive_id, "items": items}
+                    api = f"{GRAPH_BASE}/me/drive/root:/{clean_path}:/children"
+                    files = graph_get(api, token)
+                    drive = graph_get(f"{GRAPH_BASE}/me/drive", token)
 
-        # ------------------ CASE: SharePoint site navigation URL ------------------
+                    items = []
+                    for f in files["value"]:
+                        fid = f["id"]
+                        perms = get_permissions(drive["id"], fid, token)
+                        role_info = extract_roles(perms)
+
+                        items.append({
+                            "id": fid,
+                            "name": f["name"],
+                            "type": "folder" if "folder" in f else "file",
+                            "drive_id": drive["id"],
+                            **role_info
+                        })
+
+                    return {"drive_id": drive["id"], "items": items}
+
+            raise HTTPException(
+                400,
+                detail="This OneDrive shared link cannot be resolved via Microsoft Graph."
+            )
+
+        # ------------------ SharePoint site navigation URL ------------------
         parsed = urlparse(folder_path)
         hostname = parsed.hostname
 
