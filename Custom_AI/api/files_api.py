@@ -113,10 +113,13 @@ def get_files_by_path(folder_path: str = Query(""), authorization: str = Header(
     # ------------------ CASE 1: URL ------------------
     if folder_path.startswith("http"):
 
-        share_res = resolve_share_link(folder_path, token)
+        # ✅ ALWAYS treat OneDrive-style shared links as shared links
+        if "/:f:/" in folder_path or "/:u:/" in folder_path:
+            share_res = resolve_share_link(folder_path, token)
 
-        # Shared link resolved
-        if share_res:
+            if not share_res:
+                raise HTTPException(404, detail="Unable to resolve shared OneDrive link")
+
             drive_id = share_res["parentReference"]["driveId"]
             item_id = share_res["id"]
 
@@ -136,7 +139,7 @@ def get_files_by_path(folder_path: str = Query(""), authorization: str = Header(
                     }]
                 }
 
-            # Folder - fetch children
+            # Folder → fetch children
             children_api = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children"
             children = graph_get(children_api, token)
 
@@ -156,7 +159,7 @@ def get_files_by_path(folder_path: str = Query(""), authorization: str = Header(
 
             return {"drive_id": drive_id, "items": items}
 
-        # ----------- NOT a SHARE LINK → UI NAV LINK ----------
+        # ------------------ CASE: SharePoint site navigation URL ------------------
         parsed = urlparse(folder_path)
         hostname = parsed.hostname
 
