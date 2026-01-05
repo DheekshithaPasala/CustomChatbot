@@ -7,6 +7,10 @@ from urllib.parse import urlparse
 router = APIRouter(prefix="/files")
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
+def normalize_token(auth_header: str):
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(401, detail="Invalid Authorization header")
+    return auth_header.strip()
 
 # ------------------------------
 # UTIL
@@ -76,7 +80,7 @@ def extract_roles(perm_json):
 # ------------------------------
 @router.get("/children")
 def get_children(drive_id: str, item_id: str, authorization: str = Header(...)):
-    token = authorization
+    token = normalize_token(authorization)
     api = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children"
 
     children = graph_get(api, token, "Folder not found or inaccessible")
@@ -108,7 +112,7 @@ def get_children(drive_id: str, item_id: str, authorization: str = Header(...)):
 # ------------------------------
 @router.get("/by-path")
 def get_files_by_path(folder_path: str = Query(""), authorization: str = Header(...)):
-    token = authorization
+    token = normalize_token(authorization)
 
     # ------------------ CASE 1: URL ------------------
     if folder_path.startswith("http"):
